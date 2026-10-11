@@ -1,0 +1,52 @@
+# ==============================================================================
+# DATASET DOWNLOAD & CONFIGURATION INSTRUCTIONS
+# Project: Wine Quality Classification using Random Forest
+# ==============================================================================
+#
+# 1. DATASET OVERVIEW:
+#    - Dataset Name: Wine Quality Dataset (Cortez et al., 2009)
+#    - Variant: Red Wine Subset ('winequality-red.csv')
+#    - Repository: UCI Machine Learning Repository
+#    - Total Records: 1,599 records
+#    - Total Features: 11 physicochemical input features + 1 target score
+#
+# 2. OFFICIAL DOWNLOAD SOURCE:
+#    - Direct URL: https://archive.ics.uci.edu/ml/machine-learning-databases/wine-quality/winequality-red.csv
+#    - DOI Reference: 10.24432/C56S3T
+#    - Official UCI Page: https://archive.ics.uci.edu/dataset/186/wine+quality
+#
+# 3. HOW TO DOWNLOAD & USE:
+#    Option A (Automated):
+#      - Run 'python train.py'. The training script contains an automated
+#        fallback that will fetch 'winequality-red.csv' directly from the UCI
+#        repository if it is not already in the project directory.
+#
+#    Option B (Manual Download):
+#      - Download 'winequality-red.csv' from the Direct URL above.
+#      - Save the file directly into this project directory as:
+#        ./winequality-red.csv
+#
+#    Option C (Command Line / curl):
+#      - curl -o winequality-red.csv https://archive.ics.uci.edu/ml/machine-learning-databases/wine-quality/winequality-red.csv
+#
+# 4. ATTRIBUTE INFORMATION:
+#    Input Features (11):
+#      1. fixed acidity (g(tartaric acid)/dm³)
+#      2. volatile acidity (g(acetic acid)/dm³)
+#      3. citric acid (g/dm³)
+#      4. residual sugar (g/dm³)
+#      5. chlorides (g(sodium chloride)/dm³)
+#      6. free sulfur dioxide (mg/dm³)
+#      7. total sulfur dioxide (mg/dm³)
+#      8. density (g/cm³)
+#      9. pH
+#      10. sulphates (g(potassium sulphate)/dm³)
+#      11. alcohol (% vol.)
+#
+#    Output Attribute:
+#      12. quality (score between 0 and 10)
+#          Binary Target:
+#            - 1 = Premium (quality >= 7)
+#            - 0 = Standard (quality < 7)
+#
+# ==============================================================================
