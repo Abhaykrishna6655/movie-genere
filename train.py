@@ -1,148 +1,204 @@
 """
-Wine Quality Classification - Model Training Script
-Author: Machine Learning Assignment Project
-Topic: Binary Classification of Wine Quality using Random Forest
+Movie Genre Classification - Model Training Script
+Author: Machine Learning University Assignment
+Topic: Predicting Movie Genre from Plot Summary using TF-IDF & Multinomial Naive Bayes
 """
 
 import os
-import urllib.request
+import re
+import string
+import joblib
 import pandas as pd
 import numpy as np
-import joblib
+
 from sklearn.model_selection import train_test_split
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import accuracy_score, confusion_matrix, classification_report, roc_auc_score
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.naive_bayes import MultinomialNB
+from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
 
-DATASET_FILENAME = "winequality-red.csv"
-DATASET_URL = "https://archive.ics.uci.edu/ml/machine-learning-databases/wine-quality/winequality-red.csv"
-MODEL_FILENAME = "model.pkl"
+# NLTK Stopwords
+try:
+    import nltk
+    from nltk.corpus import stopwords
+    STOP_WORDS = set(stopwords.words("english"))
+except Exception:
+    from sklearn.feature_extraction.text import ENGLISH_STOP_WORDS
+    STOP_WORDS = set(ENGLISH_STOP_WORDS)
+
+DATASET_FILE = "dataset.csv"
+KAGGLE_TXT_FILE = "train_data.txt"
+MODEL_PATH = "model.pkl"
+VECTORIZER_PATH = "vectorizer.pkl"
 
 
-def load_dataset(filepath=DATASET_FILENAME):
+def clean_text(text: str) -> str:
     """
-    Loads the red wine dataset. If the file is not present locally,
-    downloads it directly from the UCI Machine Learning Repository.
+    Cleans raw text by:
+    1. Converting to lowercase
+    2. Removing HTML tags and URLs
+    3. Stripping punctuation and numeric digits
+    4. Removing English stop words
+    5. Normalizing multiple whitespaces
     """
-    if not os.path.exists(filepath):
-        print(f"[-] '{filepath}' not found locally.")
-        print(f"[*] Downloading dataset from UCI Repository: {DATASET_URL}...")
-        try:
-            urllib.request.urlretrieve(DATASET_URL, filepath)
-            print(f"[+] Download complete: '{filepath}' saved successfully.\n")
-        except Exception as e:
-            raise FileNotFoundError(
-                f"Failed to auto-download dataset. Please place '{filepath}' in this directory. Error: {e}"
-            )
+    if not isinstance(text, str):
+        return ""
+    
+    # 1. Lowercase
+    text = text.lower()
+    
+    # 2. Strip URLs & HTML tags
+    text = re.sub(r"https?://\S+|www\.\S+", "", text)
+    text = re.sub(r"<.*?>+", "", text)
+    
+    # 3. Keep only alphabetic characters
+    text = re.sub(r"[^a-zA-Z\s]", " ", text)
+    
+    # 4. Tokenize & remove stop words
+    tokens = text.split()
+    tokens = [w for w in tokens if w not in STOP_WORDS and len(w) > 2]
+    
+    return " ".join(tokens)
+
+
+def load_dataset():
+    """
+    Loads movie plot data.
+    Supports:
+      - dataset.csv (standard CSV format with 'genre' and 'plot'/'description')
+      - train_data.txt (Kaggle Genre Classification dataset delimiter ':::')
+    """
+    df = None
+    
+    # Check for Kaggle train_data.txt format (ID ::: TITLE ::: GENRE ::: DESCRIPTION)
+    if os.path.exists(KAGGLE_TXT_FILE):
+        print(f"[*] Detected Kaggle format file: '{KAGGLE_TXT_FILE}'")
+        df = pd.read_csv(
+            KAGGLE_TXT_FILE,
+            sep=r":::",
+            engine="python",
+            names=["id", "title", "genre", "plot"],
+            index_col=False
+        )
+    elif os.path.exists(DATASET_FILE):
+        print(f"[*] Loading dataset from: '{DATASET_FILE}'")
+        df = pd.read_csv(DATASET_FILE)
     else:
-        print(f"[+] Found dataset file: '{filepath}'\n")
+        raise FileNotFoundError(
+            f"[-] Neither '{DATASET_FILE}' nor '{KAGGLE_TXT_FILE}' was found. "
+            "Please ensure dataset.csv is in the project folder."
+        )
 
-    # Detect delimiter (; is standard in UCI Wine Quality, but fallback to , if modified)
-    with open(filepath, "r", encoding="utf-8") as f:
-        first_line = f.readline()
-    delimiter = ";" if ";" in first_line else ","
+    # Standardize column names
+    col_mapping = {}
+    for col in df.columns:
+        clean_col = col.strip().lower()
+        if clean_col in ["genre", "genres", "category"]:
+            col_mapping[col] = "genre"
+        elif clean_col in ["plot", "description", "summary", "overview", "plot_summary"]:
+            col_mapping[col] = "plot"
+        elif clean_col in ["title", "name", "movie_name"]:
+            col_mapping[col] = "title"
 
-    df = pd.read_csv(filepath, sep=delimiter)
-    print(f"[+] Dataset loaded successfully with shape: {df.shape[0]} rows, {df.shape[1]} columns.")
+    df = df.rename(columns=col_mapping)
+
+    if "genre" not in df.columns or "plot" not in df.columns:
+        raise ValueError(
+            f"[-] Required columns ('genre' and 'plot'/'description') not found in dataset. "
+            f"Available columns: {list(df.columns)}"
+        )
+
+    # Clean genre labels
+    df["genre"] = df["genre"].astype(str).str.strip().str.title()
+    df["plot"] = df["plot"].astype(str).str.strip()
+
+    # Drop missing or empty entries
+    df = df.dropna(subset=["genre", "plot"])
+    df = df[(df["genre"] != "") & (df["plot"] != "")]
+
+    # If dataset has numerous rare classes with < 2 samples, filter them for stratified split
+    genre_counts = df["genre"].value_counts()
+    valid_genres = genre_counts[genre_counts >= 2].index
+    df = df[df["genre"].isin(valid_genres)]
+
+    print(f"[+] Loaded {len(df):,} movie records across {df['genre'].nunique()} distinct genres.")
+    print(f"[+] Top Genres:\n{df['genre'].value_counts().head(10).to_string()}\n")
     return df
 
 
-def preprocess_data(df):
+def train_model():
     """
-    Prepares features and converts the multiclass 'quality' score
-    into a binary classification target:
-        - 1: Premium Wine (quality >= 7)
-        - 0: Standard Wine (quality < 7)
+    End-to-end training pipeline:
+    1. Load dataset
+    2. Clean text data
+    3. Train-test split (80-20 stratified)
+    4. Fit TF-IDF Vectorizer
+    5. Train Multinomial Naive Bayes Classifier
+    6. Evaluate and print detailed metrics
+    7. Save model.pkl and vectorizer.pkl
     """
-    # Create binary target
-    df["target"] = (df["quality"] >= 7).astype(int)
+    print("=" * 70)
+    print("MOVIE GENRE CLASSIFICATION - TRAINING PIPELINE")
+    print("Algorithm: Multinomial Naive Bayes with TF-IDF Vectorization")
+    print("=" * 70 + "\n")
 
-    # Feature matrix X and target vector y
-    X = df.drop(columns=["quality", "target"])
-    y = df["target"]
+    # 1. Load data
+    df = load_dataset()
 
-    print("\n[+] Target Distribution:")
-    counts = y.value_counts()
-    print(f"    - Standard (0, quality < 7) : {counts.get(0, 0)} ({counts.get(0, 0) / len(y) * 100:.1f}%)")
-    print(f"    - Premium  (1, quality >= 7): {counts.get(1, 0)} ({counts.get(1, 0) / len(y) * 100:.1f}%)")
+    # 2. Text preprocessing
+    print("[*] Preprocessing movie plot summaries (cleaning, tokenizing, removing stop words)...")
+    df["clean_plot"] = df["plot"].apply(clean_text)
+    
+    # Filter out empty cleaned plots
+    df = df[df["clean_plot"].str.strip() != ""]
 
-    return X, y
+    X = df["clean_plot"]
+    y = df["genre"]
 
-
-def train_and_evaluate(X, y):
-    """
-    Splits data, trains a Random Forest Classifier, and evaluates performance.
-    """
-    # 80-20 Train/Test split with stratification to preserve class balance
+    # 3. Stratified Train-Test Split (80% Train, 20% Test)
     X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42, stratify=y
+        X, y, test_size=0.20, random_state=42, stratify=y
+    )
+    print(f"[+] Training samples : {len(X_train):,}")
+    print(f"[+] Testing samples  : {len(X_test):,}")
+
+    # 4. Feature Extraction: TF-IDF Vectorization
+    print("\n[*] Vectorizing plot summaries using TF-IDF...")
+    tfidf = TfidfVectorizer(
+        max_features=5000,
+        ngram_range=(1, 2),
+        sublinear_tf=True,
+        stop_words="english"
     )
 
-    print(f"\n[+] Train set size: {X_train.shape[0]} samples")
-    print(f"[+] Test set size : {X_test.shape[0]} samples")
+    X_train_tfidf = tfidf.fit_transform(X_train)
+    X_test_tfidf = tfidf.transform(X_test)
+    print(f"[+] TF-IDF vocabulary size : {len(tfidf.vocabulary_):,} features")
+    print(f"[+] Feature matrix shape   : {X_train_tfidf.shape}")
 
-    # Initialize and train Random Forest Classifier
-    rf_classifier = RandomForestClassifier(
-        n_estimators=100,
-        random_state=42,
-        max_depth=None,
-        n_jobs=-1
-    )
+    # 5. Classifier Training: Multinomial Naive Bayes
+    print("\n[*] Training Multinomial Naive Bayes Classifier (alpha=0.5)...")
+    clf = MultinomialNB(alpha=0.5)
+    clf.fit(X_train_tfidf, y_train)
+    print("[+] Model training complete.")
 
-    print("\n[*] Training Random Forest Classifier...")
-    rf_classifier.fit(X_train, y_train)
-    print("[+] Model training completed.")
-
-    # Predictions
-    y_pred = rf_classifier.predict(X_test)
-    y_proba = rf_classifier.predict_proba(X_test)[:, 1]
-
-    # Evaluation Metrics
+    # 6. Evaluation
+    y_pred = clf.predict(X_test_tfidf)
     accuracy = accuracy_score(y_test, y_pred)
-    cm = confusion_matrix(y_test, y_pred)
-    roc_auc = roc_auc_score(y_test, y_proba)
-    cr = classification_report(y_test, y_pred, target_names=["Standard (0)", "Premium (1)"])
 
-    print("\n" + "=" * 50)
-    print("           MODEL EVALUATION METRICS")
-    print("=" * 50)
-    print(f"Accuracy Score : {accuracy:.4f} ({accuracy * 100:.2f}%)")
-    print(f"ROC-AUC Score  : {roc_auc:.4f}")
-    print("\nConfusion Matrix:")
-    print(f"                 Predicted 0   Predicted 1")
-    print(f"  Actual 0 (Std)     {cm[0, 0]:<12} {cm[0, 1]}")
-    print(f"  Actual 1 (Prem)    {cm[1, 0]:<12} {cm[1, 1]}")
+    print("\n" + "=" * 70)
+    print(f"EVALUATION RESULTS: Accuracy = {accuracy * 100:.2f}%")
+    print("=" * 70)
+    print("\nClassification Report:\n")
+    print(classification_report(y_test, y_pred, zero_division=0))
 
-    print("\nDetailed Classification Report:")
-    print(cr)
-    print("=" * 50)
-
-    # Top Feature Importances
-    importances = pd.Series(rf_classifier.feature_importances_, index=X.columns).sort_values(ascending=False)
-    print("\n[+] Top Feature Importances:")
-    for feature, score in importances.items():
-        print(f"    - {feature:<22}: {score:.4f} ({score * 100:.1f}%)")
-
-    return rf_classifier
-
-
-def save_model(model, filepath=MODEL_FILENAME):
-    """
-    Serializes and saves the trained model to disk using joblib.
-    """
-    joblib.dump(model, filepath)
-    print(f"\n[+] Model successfully saved as '{filepath}' ({os.path.getsize(filepath) / 1024:.1f} KB).")
-
-
-def main():
-    print("=" * 50)
-    print(" Red Wine Quality Classification - Training Pipeline")
-    print("=" * 50)
-    df = load_dataset(DATASET_FILENAME)
-    X, y = preprocess_data(df)
-    model = train_and_evaluate(X, y)
-    save_model(model, MODEL_FILENAME)
-    print("\n[OK] Pipeline executed successfully!")
+    # 7. Persist Artifacts
+    print("[*] Saving trained model and vectorizer...")
+    joblib.dump(clf, MODEL_PATH)
+    joblib.dump(tfidf, VECTORIZER_PATH)
+    print(f"[+] Model saved to       : '{MODEL_PATH}' ({os.path.getsize(MODEL_PATH) / 1024:.1f} KB)")
+    print(f"[+] Vectorizer saved to  : '{VECTORIZER_PATH}' ({os.path.getsize(VECTORIZER_PATH) / 1024:.1f} KB)")
+    print("\n[SUCCESS] Training pipeline completed successfully!\n")
 
 
 if __name__ == "__main__":
-    main()
+    train_model()

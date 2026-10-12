@@ -1,99 +1,95 @@
 ================================================================================
-           ACADEMIC PROJECT REPORT: WINE QUALITY CLASSIFICATION
-                    USING RANDOM FOREST CLASSIFIER
-================================================================================
-Course: Machine Learning & Data Science
-Task: Supervised Classification Pipeline & Interactive Deployment
-Student Name: [Your Name / Student ID]
-Date: October 2026
+ACADEMIC PROJECT REPORT: MOVIE GENRE CLASSIFICATION
+Predicting Movie Genres from Plot Summaries using TF-IDF & Multinomial Naive Bayes
+Course: Machine Learning & Natural Language Processing
+Date: Academic Term 2026
 ================================================================================
 
 1. PROBLEM STATEMENT
---------------------
-Sensory wine quality grading by human panels is inherently subjective, logistically 
-cumbersome, and prone to inconsistency. The objective of this study is to develop 
-an objective, automated Machine Learning classification model that accurately predicts 
-the quality tier of Vinho Verde red wine based exclusively on 11 physicochemical 
-laboratory measurements. Specifically, the model solves a binary classification task: 
-distinguishing high-grade "Premium Wine" (sensory score >= 7 out of 10) from "Standard 
-Wine" (sensory score < 7 out of 10), providing winemakers and distributors with an 
-empirically validated quality assurance mechanism.
+With hundreds of thousands of motion pictures released globally, streaming platforms 
+and digital archives require automated categorization mechanisms to organize large 
+media catalogs, enhance search indexing, and power personalized recommendation systems. 
+Manual genre tagging is labor-intensive, subjective, and prone to inconsistency. 
+This project addresses the challenge of automated text classification: given an 
+unstructured textual plot summary of a movie, build and evaluate a machine learning 
+pipeline to accurately predict its primary cinematic genre (e.g., Action, Comedy, 
+Drama, Horror, Romance, Sci-Fi, Thriller).
 
+2. TEXT DATA PREPROCESSING & FEATURE EXTRACTION (TF-IDF)
+Raw movie plot descriptions consist of unstructured natural language containing noise, 
+syntactic variations, and non-informative tokens. The preprocessing pipeline applies:
+  a. Text Normalization: Conversion of all characters to lowercase to eliminate case 
+     sensitivity (e.g., "Alien" vs. "alien").
+  b. Noise Reduction: Regular-expression removal of HTML markup, URLs, numerical 
+     digits, and punctuation characters.
+  c. Stop Word Removal: Elimination of high-frequency English functional words 
+     (such as "the", "and", "is", "with") that carry minimal genre-specific discriminative 
+     information.
+  d. Tokenization & N-gram Extraction: Splitting text into individual tokens as well 
+     as bi-grams (1, 2) to preserve meaningful domain phrases (e.g., "serial killer", 
+     "deep space", "romantic dinner").
+  e. TF-IDF Vectorization: Term Frequency-Inverse Document Frequency (TF-IDF) transforms 
+     the variable-length text into high-dimensional numerical feature vectors:
+         TF-IDF(t, d, D) = TF(t, d) * log((1 + |D|) / (1 + DF(t))) + 1
+     This penalizes universally ubiquitous terms while rewarding words that are 
+     distinctive to specific genres. A vocabulary threshold of the top 5,000 features 
+     with sublinear TF scaling is implemented to control sparsity and prevent term saturation.
 
-2. DATA PREPROCESSING STEPS
----------------------------
-The benchmark dataset consists of 1,599 instances sourced from the UCI Machine 
-Learning Repository (Cortez et al., 2009). The preprocessing pipeline executed 
-the following sequential stages:
-  a. Data Hygiene & Integrity: Evaluated missing values; the dataset contained 0 
-     null or unrecorded entries across all 11 attributes.
-  b. Target Binarization: Transformed the original discrete quality score (ranging 
-     from 3 to 8) into a binary target vector:
-       - Class 1 (Premium): Quality >= 7 (217 samples, 13.57% of dataset)
-       - Class 0 (Standard): Quality < 7 (1,382 samples, 86.43% of dataset)
-  c. Stratified Train-Test Splitting: Partitioned data into 80% training (1,279 samples) 
-     and 20% test (320 samples) partitions. Stratification was strictly enforced 
-     to preserve identical class ratios across both splits, preventing distribution 
-     skew during model evaluation.
-  d. Feature Matrix Alignment: Maintained all 11 physicochemical continuous features 
-     in fixed canonical ordering to ensure complete pipeline reproducibility.
+3. ALGORITHM SELECTION: WHY MULTINOMIAL NAIVE BAYES FOR TEXT?
+The Multinomial Naive Bayes (MNB) classifier was selected as the optimal algorithm for 
+this task due to several theoretical and empirical strengths in Natural Language Processing:
+  a. High-Dimensional Text Suitability: Text classification involves thousands of feature 
+     dimensions. Naive Bayes performs exceptionally well in high-dimensional, sparse 
+     vector spaces where complex discriminative models often overfit.
+  b. Multinomial Distribution Match: MNB is mathematically formulated to model discrete 
+     event counts and word frequency distributions (and by extension TF-IDF weights) 
+     occurring in text documents.
+  c. Computational Efficiency: Training and inference exhibit linear time complexity 
+     O(N * |V|), making it orders of magnitude faster to train and deploy than support 
+     vector machines or recurrent neural networks.
+  d. Laplace Smoothing (alpha = 0.5): Prevents zero-probability penalties for unseen 
+     vocabulary terms during testing, maintaining robust probabilistic calibration.
 
+4. EXPERIMENTAL SETUP & EVALUATION METRICS
+The dataset was partitioned into an 80% training set and a 20% test set using 
+stratified sampling to preserve class distribution across genres. Model performance 
+was evaluated using the following standard statistical metrics:
+  - Accuracy: Overall proportion of correct predictions across all test instances.
+  - Precision: Proportion of predicted instances for a genre that were truly correct, 
+    minimizing false positives.
+  - Recall: Sensitivity metric measuring the proportion of actual genre instances correctly 
+    identified, minimizing false negatives.
+  - F1-Score (Macro & Weighted): Harmonic mean of precision and recall, balancing 
+    performance across both majority and minority genre classes.
+  - Confusion Matrix: Inter-class confusion tracking to observe genre misclassifications.
 
-3. ALGORITHM SELECTION: WHY RANDOM FOREST?
-------------------------------------------
-The Random Forest Classifier was chosen as the optimal architecture for this domain 
-due to several foundational theoretical advantages:
-  a. Non-Linear Feature Interactions: Wine quality does not exhibit simple linear 
-     separability. Random Forest effectively captures complex non-linear thresholds 
-     (e.g., the interactive relationship between alcohol, acidity, and sulphates).
-  b. Robustness Against Overfitting: By constructing an ensemble of 100 decorrelated 
-     decision trees trained on bootstrapped subsets (bagging) with random feature 
-     subspaces at each node split, Random Forest significantly mitigates the variance 
-     and overfitting tendencies of individual decision trees.
-  c. Invariance to Feature Scaling: Unlike Support Vector Machines or Logistic Regression, 
-     tree-based partition boundaries are monotonic and do not require normalization 
-     or standardization, preserving the original physical interpretability of the units.
-  d. Built-in Feature Importance: Gini impurity reduction directly quantifies the relative 
-     contribution of each chemical factor to final wine grade predictions.
+5. ANALYSIS OF RESULTS & OBSERVATIONS
+Experimental evaluation revealed the following key insights:
+  a. Lexical Distinctiveness: Genres with unique, highly specialized vocabularies—such 
+     as Horror ("ghost", "curse", "haunted", "demonic"), Sci-Fi ("spaceship", "alien", 
+     "planet", "future"), and Romance ("love", "wedding", "passion")—achieved the highest 
+     individual precision and recall scores.
+  b. Multi-Genre Overlap: Genres with broader narrative thematic scope, particularly 
+     Drama and Thriller, exhibited higher misclassification rates. Because a dramatic plot 
+     can easily overlap with crime, romance, or action themes, single-label classification 
+     faces inherent linguistic ambiguity.
+  c. Feature Sparsity Management: Incorporating sublinear term frequency scaling and 
+     bi-grams significantly improved discrimination between nuanced sub-genres compared 
+     to basic bag-of-words count vectorization.
 
+6. LIMITATIONS & FUTURE SCOPE
+While Multinomial Naive Bayes with TF-IDF provides a lightweight, highly interpretable, 
+and low-latency baseline, real-world movie summaries frequently belong to multiple genres 
+simultaneously (e.g., Sci-Fi Comedy). Future enhancements include:
+  1. Multi-Label Classification: Transitioning to Binary Relevance or Classifier Chains 
+     to predict multi-genre tags per movie.
+  2. Contextual Transformer Embeddings: Implementing contextual language models (such as 
+     BERT or RoBERTa) to capture semantic dependencies, polysemy, and narrative structure 
+     beyond keyword occurrence.
 
-4. EXPERIMENTAL EVALUATION METRICS
-----------------------------------
-The model was tested on 320 unseen test samples using standard classification metrics:
-  - Overall Accuracy       : 94.38% (302 out of 320 correct predictions)
-  - ROC-AUC Score          : 0.9554 (Outstanding discriminatory power)
-  - Macro Average F1-Score : 0.86
-  - Weighted Average F1    : 0.94
-
-Confusion Matrix Breakdown:
-  - True Negatives (Standard classified as Standard) : 275
-  - False Positives (Standard classified as Premium)  : 2  (0.7% False Alarm Rate)
-  - False Negatives (Premium classified as Standard)  : 16
-  - True Positives (Premium classified as Premium)    : 27 (Precision: 93.1%)
-
-Performance by Class:
-  - Class 0 (Standard): Precision = 0.95, Recall = 0.99, F1-Score = 0.97
-  - Class 1 (Premium) : Precision = 0.93, Recall = 0.63, F1-Score = 0.75
-
-
-5. ANALYSIS OF RESULTS & CHEMICAL INSIGHTS
-------------------------------------------
-1. Exceptional Precision (93.1%): The model achieved an extraordinarily low false positive 
-   rate, generating only 2 false positive classifications. In commercial winemaking, 
-   this is critical: a bottle labeled as "Premium" has over a 93% certainty of truly 
-   being superior grade.
-2. Key Chemical Drivers (Feature Importance Ranking):
-   - Alcohol (17.37%): The single strongest predictor of high wine quality. Wines with 
-     alcohol >= 11.5% had dramatically higher probabilities of achieving >= 7 ratings.
-   - Sulphates (11.13%): Potassium sulphate serves as an antimicrobial agent and antioxidant; 
-     higher concentrations correlate positively with structural preservation.
-   - Volatile Acidity (10.24%): Acetic acid imparts a pungent vinegar taste. Premium wines 
-     uniformly maintained volatile acidity below 0.45 g/dm³.
-   - Citric Acid (9.29%): Contributes natural freshness and tartness, enhancing sensory balance.
-3. Interactive Deployment: The trained model was serialized (model.pkl) and deployed via 
-   Streamlit (app.py), providing real-time sliders for the top 4 predictors while maintaining 
-   empirical median baselines for the remaining 7 features.
-
-================================================================================
-                                 END OF REPORT
+7. CONCLUSION
+The end-to-end pipeline demonstrates that TF-IDF feature extraction combined with a 
+Multinomial Naive Bayes classifier delivers an effective, robust, and computationally 
+efficient solution for movie genre prediction from synopsis text, fulfilling all academic 
+and production deployment objectives.
 ================================================================================

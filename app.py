@@ -1,300 +1,360 @@
 """
-Wine Quality Classification - Streamlit Web Application
-Author: Machine Learning Assignment Project
-Topic: Real-Time Wine Quality Prediction using Random Forest
+Movie Genre Classification - Streamlit Web Application
+Author: Machine Learning University Assignment
+Topic: Predicting Movie Genre from Plot Summary using TF-IDF & Multinomial Naive Bayes
 """
 
 import os
-import streamlit as st
+import re
+import joblib
 import pandas as pd
 import numpy as np
-import joblib
+import streamlit as st
 
-# ------------------------------------------------------------------------------
-# 1. Page Configuration & Custom Styling
-# ------------------------------------------------------------------------------
+# Configure Streamlit page layout and appearance
 st.set_page_config(
-    page_title="Wine Quality Classifier",
-    page_icon="🍷",
+    page_title="CineGenre AI - Movie Genre Classifier",
+    page_icon="🎬",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="expanded",
 )
 
-# Custom CSS for rich aesthetics and clean typography
-st.markdown("""
-<style>
-    /* Global Styles */
-    .main-header {
-        font-size: 2.3rem;
+# Custom Styling for modern cinematic aesthetics
+st.markdown(
+    """
+    <style>
+    /* Global Styles & Fonts */
+    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;600;700;800&family=Cinzel:wght@600;800&display=swap');
+
+    .cinematic-header {
+        font-family: 'Cinzel', serif;
         font-weight: 800;
-        color: #722F37; /* Wine Burgundy */
-        margin-bottom: 0.2rem;
+        letter-spacing: 1.5px;
+        background: linear-gradient(135deg, #ff4b4b 0%, #ff8533 50%, #f9d423 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        margin-bottom: 0px;
     }
-    .sub-header {
+    .sub-hero {
+        font-family: 'Plus Jakarta Sans', sans-serif;
+        color: #94a3b8;
         font-size: 1.05rem;
-        color: #555555;
-        margin-bottom: 1.5rem;
+        margin-bottom: 25px;
     }
-    .card {
-        background-color: #ffffff;
-        border-radius: 12px;
-        padding: 1.5rem;
-        border: 1px solid #e0e0e0;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
-        margin-bottom: 1.5rem;
-    }
-    .prediction-premium {
-        background: linear-gradient(135deg, #1b4332 0%, #2d6a4f 100%);
-        color: #ffffff;
-        border-radius: 14px;
-        padding: 1.8rem;
-        text-align: center;
-        box-shadow: 0 8px 24px rgba(45, 106, 79, 0.25);
-        margin-top: 1rem;
-    }
-    .prediction-standard {
-        background: linear-gradient(135deg, #343a40 0%, #495057 100%);
-        color: #ffffff;
-        border-radius: 14px;
-        padding: 1.8rem;
-        text-align: center;
-        box-shadow: 0 8px 24px rgba(52, 58, 64, 0.25);
-        margin-top: 1rem;
-    }
-    .badge {
+    .badge-tag {
         display: inline-block;
-        padding: 0.35rem 0.8rem;
-        font-size: 0.85rem;
+        background: rgba(255, 75, 75, 0.12);
+        color: #ff4b4b;
+        padding: 4px 12px;
+        border-radius: 999px;
+        font-size: 0.78rem;
+        font-weight: 600;
+        margin-right: 6px;
+        border: 1px solid rgba(255, 75, 75, 0.25);
+    }
+    .card-box {
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 12px;
+        padding: 20px;
+        margin-bottom: 20px;
+    }
+    .genre-pill {
+        font-size: 1.8rem;
         font-weight: 700;
-        border-radius: 20px;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
+        padding: 10px 24px;
+        border-radius: 12px;
+        text-align: center;
+        background: linear-gradient(135deg, rgba(255, 75, 75, 0.2), rgba(255, 133, 51, 0.2));
+        border: 1px solid rgba(255, 75, 75, 0.4);
+        margin-top: 10px;
+        margin-bottom: 15px;
     }
-    .badge-gold {
-        background-color: #d4af37;
-        color: #000000;
-    }
-    .badge-silver {
-        background-color: #adb5bd;
-        color: #212529;
-    }
-    .metric-val {
-        font-size: 2rem;
-        font-weight: 700;
-    }
-</style>
-""", unsafe_allow_html=True)
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
-
-# ------------------------------------------------------------------------------
-# 2. Model Loading
-# ------------------------------------------------------------------------------
 MODEL_PATH = "model.pkl"
+VECTORIZER_PATH = "vectorizer.pkl"
 
-@st.cache_resource
-def load_model():
-    """Loads the pre-trained Random Forest model from model.pkl."""
-    if not os.path.exists(MODEL_PATH):
-        return None
-    try:
-        model = joblib.load(MODEL_PATH)
-        return model
-    except Exception as e:
-        st.error(f"Error loading model from {MODEL_PATH}: {e}")
-        return None
-
-model = load_model()
-
-# Median baseline values calculated from the 1,599 records in UCI winequality-red dataset
-MEDIAN_DEFAULTS = {
-    "fixed acidity": 7.90,
-    "residual sugar": 2.20,
-    "chlorides": 0.079,
-    "free sulfur dioxide": 14.0,
-    "total sulfur dioxide": 38.0,
-    "density": 0.99675,
-    "pH": 3.31
+# Emojis associated with genres
+GENRE_EMOJIS = {
+    "Action": "💥",
+    "Adventure": "🗺️",
+    "Animation": "🎨",
+    "Comedy": "😂",
+    "Crime": "🕵️‍♂️",
+    "Documentary": "📹",
+    "Drama": "🎭",
+    "Family": "👨‍👩‍👧‍👦",
+    "Fantasy": "🧙‍♂️",
+    "History": "📜",
+    "Horror": "👻",
+    "Music": "🎵",
+    "Musical": "💃",
+    "Mystery": "🔍",
+    "Romance": "❤️",
+    "Sci-Fi": "🚀",
+    "Sport": "🏆",
+    "Thriller": "⚡",
+    "War": "🪖",
+    "Western": "🤠",
 }
 
-# Complete expected feature list in exact training order
-ALL_FEATURES = [
-    "fixed acidity",
-    "volatile acidity",
-    "citric acid",
-    "residual sugar",
-    "chlorides",
-    "free sulfur dioxide",
-    "total sulfur dioxide",
-    "density",
-    "pH",
-    "sulphates",
-    "alcohol"
-]
+
+@st.cache_resource(show_spinner="Loading trained ML model and TF-IDF vectorizer...")
+def load_artifacts():
+    """Loads and caches the model and vectorizer artifacts."""
+    if not os.path.exists(MODEL_PATH) or not os.path.exists(VECTORIZER_PATH):
+        return None, None
+    try:
+        model = joblib.load(MODEL_PATH)
+        vectorizer = joblib.load(VECTORIZER_PATH)
+        return model, vectorizer
+    except Exception as e:
+        st.error(f"Error loading artifacts: {e}")
+        return None, None
 
 
-# ------------------------------------------------------------------------------
-# 3. Sidebar: Project Info & Background Parameters
-# ------------------------------------------------------------------------------
-with st.sidebar:
-    st.image("https://images.unsplash.com/photo-1510812431401-41d2bd2722f3?w=500&auto=format&fit=crop&q=60", 
-             caption="Fine Wine Chemistry")
-    st.markdown("### 🍷 Model Information")
-    st.markdown("""
-    - **Algorithm:** Random Forest Classifier
-    - **Estimators:** 100 Decision Trees
-    - **Dataset:** UCI Red Wine Quality (1,599 records)
-    - **Benchmark Accuracy:** ~94.4%
-    - **Target:** 
-      - **1 (Premium):** Quality score ≥ 7
-      - **0 (Standard):** Quality score < 7
-    """)
-
-    st.markdown("---")
-    st.markdown("### ⚙️ Fixed Baseline Features (Medians)")
-    st.caption("Values fixed to dataset medians for non-primary features:")
-    for feat, val in MEDIAN_DEFAULTS.items():
-        st.text(f"• {feat.title()}: {val}")
+def clean_input_text(text: str) -> str:
+    """Preprocesses input text identical to training preprocessing."""
+    if not isinstance(text, str):
+        return ""
+    text = text.lower()
+    text = re.sub(r"https?://\S+|www\.\S+", "", text)
+    text = re.sub(r"<.*?>+", "", text)
+    text = re.sub(r"[^a-zA-Z\s]", " ", text)
+    tokens = text.split()
+    return " ".join(tokens)
 
 
-# ------------------------------------------------------------------------------
-# 4. Main Application Interface
-# ------------------------------------------------------------------------------
-st.markdown('<div class="main-header">🍷 Wine Quality Classification System</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-header">Predict whether a red wine is <b>Premium</b> (Quality ≥ 7) or <b>Standard</b> (Quality &lt; 7) using machine learning based on chemical properties.</div>', unsafe_allow_html=True)
+# Pre-defined test sample plots for one-click testing
+SAMPLE_PLOTS = {
+    "🚀 Sci-Fi (Deep Space Odyssey)": (
+        "In a future where Earth's atmosphere is depleting, a crew of theoretical physicists "
+        "and astronauts travels through an anomalous wormhole near Saturn. They race against "
+        "relativistic time distortions to find a habitable exoplanet and ensure humanity's survival."
+    ),
+    "👻 Horror (The Cabin Curse)": (
+        "Five university friends spend a weekend at an isolated woodland cabin. They unearth a "
+        "cursed occult artifact in the cellar, unwittingly releasing an ancient demonic presence "
+        "that stalks them one by one in absolute darkness."
+    ),
+    "😂 Comedy (Wedding Catastrophe)": (
+        "Two irresponsible best friends are tasked with organizing an extravagant celebrity "
+        "destination wedding. Their series of hilarious misunderstandings, runaway livestock, and "
+        "botched speeches turn the prestigious ceremony into utter domestic chaos."
+    ),
+    "💥 Action (Rogue Operative)": (
+        "A retired elite black-ops assassin is pulled back into the line of fire after an international "
+        "mercenary cartel assassinates his mentor. Armed with tactical expertise, he wages a "
+        "high-octane war across the streets of Berlin to bring them down."
+    ),
+    "❤️ Romance (Autumn in Paris)": (
+        "An ambitious architectural illustrator and a passionate jazz pianist serendipitously "
+        "meet in the rain-soaked avenues of Paris. As seasons shift, they navigate the delicate "
+        "balance between personal dreams and their growing devotion to one another."
+    ),
+    "🔍 Mystery (The Locked Penthouse)": (
+        "A celebrated forensic detective is summoned to a luxury skyscraper where a tech billionaire "
+        "is discovered poisoned inside a vault locked from within. With ten suspects each concealing "
+        "a motive, every clue reveals an intricate web of betrayal."
+    ),
+}
 
-if model is None:
-    st.error("⚠️ **Model file `model.pkl` not found!**")
-    st.info("Please generate the model by running: `python train.py` in your terminal.")
-    st.stop()
 
-# Layout: Split into Feature Controls (left) and Prediction Output (right)
-col_controls, col_prediction = st.columns([1.1, 1], gap="large")
-
-with col_controls:
-    st.markdown("### 🧪 Top 4 Key Chemical Predictors")
-    st.write("Adjust the most influential physicochemical properties identified by Random Forest feature importance:")
-
-    # Slider 1: Alcohol
-    alcohol = st.slider(
-        "1. Alcohol (% by volume)",
-        min_value=8.0,
-        max_value=15.0,
-        value=10.2,
-        step=0.1,
-        help="Feature Importance: ~17.4%. Higher alcohol content strongly correlates with premium quality ratings."
-    )
-
-    # Slider 2: Sulphates
-    sulphates = st.slider(
-        "2. Sulphates (g(potassium sulphate)/dm³)",
-        min_value=0.30,
-        max_value=2.00,
-        value=0.62,
-        step=0.01,
-        help="Feature Importance: ~11.1%. Potassium sulphate acts as an antimicrobial and antioxidant agent."
-    )
-
-    # Slider 3: Volatile Acidity
-    volatile_acidity = st.slider(
-        "3. Volatile Acidity (g(acetic acid)/dm³)",
-        min_value=0.10,
-        max_value=1.60,
-        value=0.52,
-        step=0.01,
-        help="Feature Importance: ~10.2%. High acetic acid content imparts an undesirable pungent, vinegar-like taste."
-    )
-
-    # Slider 4: Citric Acid
-    citric_acid = st.slider(
-        "4. Citric Acid (g/dm³)",
-        min_value=0.00,
-        max_value=1.00,
-        value=0.26,
-        step=0.01,
-        help="Feature Importance: ~9.3%. Adds 'freshness' and crispness to red wine flavor profiles."
-    )
-
-    # Real-time feature summary preview
-    with st.expander("📋 View Full 11-Feature Input Vector"):
-        input_data = {
-            "fixed acidity": [MEDIAN_DEFAULTS["fixed acidity"]],
-            "volatile acidity": [volatile_acidity],
-            "citric acid": [citric_acid],
-            "residual sugar": [MEDIAN_DEFAULTS["residual sugar"]],
-            "chlorides": [MEDIAN_DEFAULTS["chlorides"]],
-            "free sulfur dioxide": [MEDIAN_DEFAULTS["free sulfur dioxide"]],
-            "total sulfur dioxide": [MEDIAN_DEFAULTS["total sulfur dioxide"]],
-            "density": [MEDIAN_DEFAULTS["density"]],
-            "pH": [MEDIAN_DEFAULTS["pH"]],
-            "sulphates": [sulphates],
-            "alcohol": [alcohol]
-        }
-        input_df = pd.DataFrame(input_data)[ALL_FEATURES]
-        st.dataframe(input_df.T.rename(columns={0: "Input Value"}))
-
-with col_prediction:
-    st.markdown("### 🎯 Classification Results")
-
-    # Build input DataFrame
-    input_data = {
-        "fixed acidity": [MEDIAN_DEFAULTS["fixed acidity"]],
-        "volatile acidity": [volatile_acidity],
-        "citric acid": [citric_acid],
-        "residual sugar": [MEDIAN_DEFAULTS["residual sugar"]],
-        "chlorides": [MEDIAN_DEFAULTS["chlorides"]],
-        "free sulfur dioxide": [MEDIAN_DEFAULTS["free sulfur dioxide"]],
-        "total sulfur dioxide": [MEDIAN_DEFAULTS["total sulfur dioxide"]],
-        "density": [MEDIAN_DEFAULTS["density"]],
-        "pH": [MEDIAN_DEFAULTS["pH"]],
-        "sulphates": [sulphates],
-        "alcohol": [alcohol]
-    }
-    input_df = pd.DataFrame(input_data)[ALL_FEATURES]
-
-    # Predict
-    prediction = model.predict(input_df)[0]
-    probabilities = model.predict_proba(input_df)[0]
-    prob_standard = probabilities[0] * 100
-    prob_premium = probabilities[1] * 100
-
-    # Display visually clear prediction card
-    if prediction == 1:
-        st.markdown(f"""
-        <div class="prediction-premium">
-            <span class="badge badge-gold">★ Top Tier Selection ★</span>
-            <h1 style="font-size: 2.4rem; margin: 0.6rem 0 0.2rem 0; color: #ffffff;">PREMIUM WINE</h1>
-            <p style="font-size: 1.1rem; opacity: 0.95; margin-bottom: 1.2rem;">Quality Score Classification: <b>Score ≥ 7 / 10</b></p>
-            <div style="background: rgba(255,255,255,0.15); border-radius: 10px; padding: 1rem; margin-top: 0.5rem;">
-                <div style="font-size: 0.9rem; text-transform: uppercase; letter-spacing: 1px;">Model Confidence</div>
-                <div class="metric-val">{prob_premium:.1f}%</div>
-                <div style="font-size: 0.85rem; opacity: 0.9;">Probability of Superior Grade</div>
+def main():
+    # Sidebar
+    with st.sidebar:
+        st.image("https://img.icons8.com/clouds/200/clapperboard.png", width=90)
+        st.title("Project Details")
+        st.markdown(
+            """
+            <div class="card-box">
+                <b>Topic:</b> Movie Genre Classification<br>
+                <b>Classifier:</b> Multinomial Naive Bayes<br>
+                <b>Features:</b> TF-IDF Vectorization<br>
+                <b>Vocabulary:</b> Max 5,000 N-grams<br>
+                <b>Task:</b> Multiclass NLP Prediction
             </div>
-        </div>
-        """, unsafe_allow_html=True)
-    else:
-        st.markdown(f"""
-        <div class="prediction-standard">
-            <span class="badge badge-silver">Standard Grade</span>
-            <h1 style="font-size: 2.4rem; margin: 0.6rem 0 0.2rem 0; color: #ffffff;">STANDARD WINE</h1>
-            <p style="font-size: 1.1rem; opacity: 0.95; margin-bottom: 1.2rem;">Quality Score Classification: <b>Score &lt; 7 / 10</b></p>
-            <div style="background: rgba(255,255,255,0.15); border-radius: 10px; padding: 1rem; margin-top: 0.5rem;">
-                <div style="font-size: 0.9rem; text-transform: uppercase; letter-spacing: 1px;">Model Confidence</div>
-                <div class="metric-val">{prob_standard:.1f}%</div>
-                <div style="font-size: 0.85rem; opacity: 0.9;">Probability of Standard Grade</div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        st.markdown("### 🛠️ Quick Instructions")
+        st.markdown(
+            """
+            1. Enter or paste a movie plot summary in the text box.
+            2. Or select a **Quick-Test Preset** to automatically fill an example plot.
+            3. Click **Predict Genre** to execute the pipeline.
+            """
+        )
+
+        st.markdown("---")
+        st.markdown("### 📦 Artifact Status")
+        model_exists = os.path.exists(MODEL_PATH)
+        vec_exists = os.path.exists(VECTORIZER_PATH)
+        if model_exists and vec_exists:
+            st.success("✅ `model.pkl` & `vectorizer.pkl` Loaded")
+        else:
+            st.error("❌ Model artifacts missing! Run `python train.py` first.")
+
+        st.markdown(
+            """
+            <div style="font-size: 0.8rem; color: #888; text-align: center; margin-top: 30px;">
+                End-to-End ML University Project<br>© 2026 Movie Genre NLP
             </div>
-        </div>
-        """, unsafe_allow_html=True)
+            """,
+            unsafe_allow_html=True,
+        )
 
-    st.markdown("#### Probability Distribution")
-    st.progress(int(prob_premium))
-    p_col1, p_col2 = st.columns(2)
-    p_col1.metric("Standard (0) Probability", f"{prob_standard:.1f}%")
-    p_col2.metric("Premium (1) Probability", f"{prob_premium:.1f}%")
-
-    st.info(
-        "💡 **Interpretation Tip:** High alcohol (> 11.5%) coupled with high sulphates (> 0.70 g/dm³) "
-        "and low volatile acidity (< 0.40 g/dm³) significantly increases the likelihood of achieving Premium status."
+    # Main Page Header
+    st.markdown('<h1 class="cinematic-header">CINEGENRE AI</h1>', unsafe_allow_html=True)
+    st.markdown(
+        '<p class="sub-hero">Intelligent Movie Genre Classification using Natural Language Processing & Naive Bayes</p>',
+        unsafe_allow_html=True,
     )
 
-st.markdown("---")
-st.caption("Machine Learning Academic Project • Random Forest Classification on UCI Wine Quality Dataset • Built with Streamlit")
+    # Badges
+    st.markdown(
+        """
+        <div>
+            <span class="badge-tag">TF-IDF Vectorizer</span>
+            <span class="badge-tag">Multinomial Naive Bayes</span>
+            <span class="badge-tag">Scikit-Learn</span>
+            <span class="badge-tag">Streamlit UI</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.write("")
+
+    # Artifact Loading
+    model, vectorizer = load_artifacts()
+    if model is None or vectorizer is None:
+        st.warning(
+            "⚠️ **Model and Vectorizer files not found!**\n\n"
+            "Please generate the model artifacts by executing the training script:\n"
+            "```bash\n"
+            "python train.py\n"
+            "```\n"
+            "Once `model.pkl` and `vectorizer.pkl` are generated, reload this page."
+        )
+        return
+
+    # Sample Preset Selection
+    st.markdown("### 💡 Quick-Test Example Plots")
+    sample_choice = st.selectbox(
+        "Choose an example plot to auto-fill the text area:",
+        ["-- Select a Sample Plot --"] + list(SAMPLE_PLOTS.keys()),
+        index=0,
+    )
+
+    initial_text = ""
+    if sample_choice != "-- Select a Sample Plot --":
+        initial_text = SAMPLE_PLOTS[sample_choice]
+
+    # Input Section
+    st.markdown("### 📝 Movie Plot Summary")
+    user_input = st.text_area(
+        label="Paste or type the movie synopsis below:",
+        value=initial_text,
+        height=180,
+        placeholder="Enter a descriptive synopsis of the movie (e.g., character goals, conflicts, setting, theme)...",
+        help="The richer and more descriptive the plot summary, the higher the classification confidence.",
+    )
+
+    col_btn1, col_btn2 = st.columns([1, 5])
+    with col_btn1:
+        predict_btn = st.button("🎬 Predict Genre", type="primary", use_container_width=True)
+    with col_btn2:
+        word_count = len(user_input.split()) if user_input else 0
+        char_count = len(user_input) if user_input else 0
+        st.caption(f"📊 **Word count:** {word_count} words | **Character count:** {char_count} chars")
+
+    # Prediction Logic
+    if predict_btn:
+        if not user_input.strip():
+            st.error("⚠️ Please enter a movie plot summary before predicting.")
+            return
+
+        with st.spinner("Analyzing synopsis and computing TF-IDF feature vectors..."):
+            # Clean and vectorize
+            cleaned_text = clean_input_text(user_input)
+            features = vectorizer.transform([cleaned_text])
+
+            # Predict class and probability
+            predicted_genre = model.predict(features)[0]
+            probabilities = model.predict_proba(features)[0]
+            classes = model.classes_
+
+            # Top predictions
+            top_indices = np.argsort(probabilities)[::-1][:5]
+            top_genres = [(classes[i], probabilities[i]) for i in top_indices]
+            predicted_prob = dict(top_genres).get(predicted_genre, 0.0)
+
+            emoji = GENRE_EMOJIS.get(predicted_genre, "🎬")
+
+        # Display Results
+        st.write("")
+        st.markdown("## 🎯 Prediction Results")
+
+        st.success(
+            f"### {emoji} Predicted Genre: **{predicted_genre.upper()}**\n\n"
+            f"Confidence Score: **{predicted_prob * 100:.2f}%**"
+        )
+
+        st.info(
+            f"ℹ️ Based on the lexical patterns in the plot summary, the classifier evaluated "
+            f"the synopsis as most characteristic of the **{predicted_genre}** genre."
+        )
+
+        # Confidence Breakdown
+        col_chart, col_salient = st.columns([1.2, 1])
+
+        with col_chart:
+            st.markdown("#### 📊 Top Genre Probabilities")
+            prob_df = pd.DataFrame(
+                {
+                    "Genre": [f"{GENRE_EMOJIS.get(g, '🎥')} {g}" for g, _ in top_genres],
+                    "Confidence (%)": [round(p * 100, 2) for _, p in top_genres],
+                }
+            )
+
+            for genre_name, prob in top_genres:
+                g_emoji = GENRE_EMOJIS.get(genre_name, "🎥")
+                st.write(f"**{g_emoji} {genre_name}** ({prob * 100:.1f}%)")
+                st.progress(float(prob))
+
+        with col_salient:
+            st.markdown("#### 🔑 Influential Words Detected")
+            # Extract non-zero TF-IDF terms from input
+            feature_names = vectorizer.get_feature_names_out()
+            feature_array = features.toarray()[0]
+            non_zero_indices = feature_array.nonzero()[0]
+            
+            if len(non_zero_indices) > 0:
+                word_scores = [
+                    (feature_names[i], feature_array[i]) for i in non_zero_indices
+                ]
+                word_scores = sorted(word_scores, key=lambda x: x[1], reverse=True)[:8]
+
+                keywords_html = "".join(
+                    [
+                        f"<span class='badge-tag' style='font-size: 0.85rem; margin-bottom: 8px;'>"
+                        f"#{w} ({s:.2f})</span> "
+                        for w, s in word_scores
+                    ]
+                )
+                st.markdown(
+                    f"<div class='card-box'>{keywords_html}</div>",
+                    unsafe_allow_html=True,
+                )
+                st.caption("Top matching terms from the model's TF-IDF vocabulary.")
+            else:
+                st.caption("No significant training vocabulary terms detected in the plot.")
+
+
+if __name__ == "__main__":
+    main()
